@@ -1,0 +1,74 @@
+services:
+  db:
+    image: mariadb:11.4
+    command: --transaction-isolation=READ-COMMITTED --binlog-format=ROW
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=CHANGE_ME_ROOT
+      - MYSQL_PASSWORD=CHANGE_ME_DB_PASS
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
+    volumes:
+      - ./var/services/db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - ./var/services/redis:/data
+
+  app:
+    image: nextcloud:29-apache
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8080:80"
+    environment:
+      - MYSQL_HOST=db
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
+      - MYSQL_PASSWORD=CHANGE_ME_DB_PASS
+      - REDIS_HOST=redis
+      - NEXTCLOUD_TRUSTED_DOMAINS=localhost 192.168.1.50 your.domain.example
+      - PHP_MEMORY_LIMIT=512M
+      - PHP_UPLOAD_LIMIT=10G
+    volumes:
+      - ./var/services/html:/var/www/html
+      - ./var/storage:/var/www/html/data
+
+  cron:
+    image: nextcloud:29-apache
+    restart: unless-stopped
+    depends_on:
+      - app
+    entrypoint: /cron.sh
+    environment:
+      - MYSQL_HOST=db
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
+      - MYSQL_PASSWORD=CHANGE_ME_DB_PASS
+      - REDIS_HOST=redis
+    volumes:
+      - ./var/services/html:/var/www/html
+      - ./var/storage:/var/www/html/data
+#
+#  cloudflared:
+#    image: cloudflare/cloudflared:latest
+#    restart: unless-stopped
+#    depends_on:
+#      - app
+#    command: tunnel --no-autoupdate run --token ${CF_TUNNEL_TOKEN}
+#    environment:
+#      - CF_TUNNEL_TOKEN=${CF_TUNNEL_TOKEN}
+
+volumes: {}
